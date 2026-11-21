@@ -259,13 +259,25 @@ class CraftAtelierPage(QWidget):
             QMessageBox.warning(self, "Import impossible", str(error))
             return
         if not requirements:
-            QMessageBox.warning(
-                self,
-                "Ressources non reconnues",
-                "Aucune ressource Dofusbook reconnue. "
-                "Ouvre l'atelier, copie la liste visible des ressources et colle-la ici. "
-                "Les éléments doivent porter leurs noms exacts et leurs quantités.",
+            dialog = QMessageBox(self)
+            dialog.setIcon(QMessageBox.Icon.Warning)
+            dialog.setWindowTitle("Ressources non reconnues")
+            dialog.setText(
+                "Le lien a été chargé, mais aucune ressource exploitable n'a été reconnue. "
+                "Clique sur « Afficher les détails » pour voir le texte réellement "
+                "récupéré sur Dofusbook. Tu peux le copier pour diagnostiquer "
+                "le format (vérifie les informations personnelles avant de le partager). "
+                "Si Dofusbook demande une connexion, colle plutôt la liste visible "
+                "depuis ton navigateur."
             )
+            excerpt = text.strip()
+            dialog.setDetailedText(
+                "Texte extrait de la page Dofusbook (limité à 6000 caractères) :\n\n"
+                + (excerpt[:6000] if excerpt else "[Page vide ou contenu inaccessible]")
+                + f"\n\nLongueur totale : {len(excerpt)} caractères."
+            )
+            dialog.setStandardButtons(QMessageBox.StandardButton.Ok)
+            dialog.exec()
             return
         if not self._confirm_replace(True):
             return

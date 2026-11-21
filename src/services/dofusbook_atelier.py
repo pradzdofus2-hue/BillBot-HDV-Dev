@@ -140,9 +140,16 @@ def _render_public_atelier(url: str) -> str:
             except Exception:
                 # Some single-page apps keep sockets and polling requests open.
                 pass
-            page.wait_for_timeout(1_000)
+            # Atelier content can arrive after document load or websocket polling.
+            body = page.locator("body")
+            text = ""
+            for _ in range(8):
+                text = body.inner_text(timeout=10_000)
+                if _has_visible_quantities(text):
+                    break
+                page.wait_for_timeout(1_000)
             _validate_url(page.url)
-            return page.locator("body").inner_text(timeout=10_000)
+            return text
         finally:
             browser.close()
 
@@ -184,14 +191,9 @@ def fetch_public_atelier(url: str) -> str:
             document = raw.decode(response.encoding, errors="replace")
             if "text/plain" in content_type:
                 return document
-            parser = _VisibleText()
-            parser.feed(document)
-            text = parser.text()
-            if _has_visible_quantities(text):
-                return text
-            # Dofusbook is a SPA: HTML may contain navigation only, while
-            # workshop materials load via JavaScript after page navigation.
-            # Playwright is already an AstraBot runtime dependency.
+            # Always use the rendered document for HTML: even an unrelated
+            # counter in the unrendered shell may resemble "0 / 4".
+            # Dofusbook pages are populated on the client side.
             return _render_public_atelier(current)
         finally:
             response.close()
