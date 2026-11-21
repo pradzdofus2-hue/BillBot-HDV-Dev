@@ -46,6 +46,27 @@ class _VisibleText(HTMLParser):
         return "".join(self.fragments)
 
 
+def is_access_blocked(text: str) -> bool:
+    """Detect a Cloudflare block page before trying to read ingredients."""
+    lowered = text.casefold()
+    return (
+        "sorry, you have been blocked" in lowered
+        or "you are unable to access dofusbook.net" in lowered
+        or ("cloudflare ray id" in lowered and "blocked" in lowered)
+    )
+
+
+def require_accessible_atelier(text: str) -> None:
+    if is_access_blocked(text):
+        raise ValueError(
+            "Dofusbook refuse la lecture automatisée (Cloudflare). "
+            "Ouvre ton atelier normalement dans Chrome, puis copie "
+            "la liste visible (Ctrl+A, Ctrl+C) pour l'importer "
+            "depuis le presse-papiers dans l'onglet Atelier. "
+            "N'utilise pas Afficher le code source."
+        )
+
+
 def normalize_item_name(name: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", name).casefold().split())
 
@@ -67,7 +88,20 @@ def parse_atelier_text(text: str, gid_by_name: dict[str, int]) -> dict[int, int]
     trailing = re.compile(r"^(.+?)\s+[x×]\s*(\d[\d\s]*)$", re.I)
     leading = re.compile(r"^(\d[\d\s]*)\s*[x×]\s+(.+)$", re.I)
 
+    same_line = re.compile(r"^(.+?)\s+(\d[\d\s]*)\s*/\s*(\d[\d\s]*)$")
+
     for i, line in enumerate(lines):
+        inline = same_line.fullmatch(line)
+        if inline:
+            # Match only exact names; never assign unknown resources to a
+            # preceding known resource.
+            name, _owned, required = inline.groups()
+            gid = gid_by_name.get(normalize_item_name(name))
+            if gid is not None:
+                needed = _number(required)
+                if needed > 0:
+                    result[gid] = max(result.get(gid, 0), needed)
+            continue
         match = fraction.fullmatch(line)
         if match:
             needed = _number(match.group(2))
@@ -149,6 +183,7 @@ def _render_public_atelier(url: str) -> str:
                     break
                 page.wait_for_timeout(1_000)
             _validate_url(page.url)
+            require_accessible_atelier(text)
             return text
         finally:
             browser.close()
@@ -174,6 +209,12 @@ def fetch_public_atelier(url: str) -> str:
             stream=True,
         )
         try:
+            if response.status_code == 403:
+                raise ValueError(
+                    "Dofusbook refuse l'accès automatisé à cette page (HTTP 403). "
+                    "Ouvre ton atelier dans Chrome et importe le texte visible "
+                    "via le presse-papiers."
+                )
             if response.status_code in (301, 302, 303, 307, 308):
                 location = response.headers.get("Location")
                 if not location:
@@ -189,6 +230,7 @@ def fetch_public_atelier(url: str) -> str:
                 raise ValueError("Page Dofusbook trop volumineuse.")
             response.encoding = response.encoding or "utf-8"
             document = raw.decode(response.encoding, errors="replace")
+            require_accessible_atelier(document)
             if "text/plain" in content_type:
                 return document
             # Always use the rendered document for HTML: even an unrelated

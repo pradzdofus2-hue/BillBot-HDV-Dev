@@ -29,6 +29,7 @@ from src.services.dofusbook_atelier import (
     fetch_public_atelier,
     normalize_item_name,
     parse_atelier_text,
+    require_accessible_atelier,
 )
 lazy from src.core.bot.bot import Bot
 
@@ -107,8 +108,9 @@ class CraftAtelierPage(QWidget):
 
         self.pasted_text = QPlainTextEdit(self)
         self.pasted_text.setPlaceholderText(
-            "Si ton atelier n'est pas public, copie-colle ici les ressources et "
-            "leurs quantités depuis Dofusbook. Aucun identifiant requis."
+            "Dans Chrome, ouvre l'atelier Dofusbook, sélectionne la liste "
+            "visible (Ctrl+A, Ctrl+C), puis clique « Importer le presse-papiers ». "
+            "Ne copie pas le code source HTML. Aucun identifiant requis."
         )
         self.pasted_text.setMaximumHeight(65)
         layout.addWidget(self.pasted_text)
@@ -116,6 +118,13 @@ class CraftAtelierPage(QWidget):
         paste_button = QPushButton("Importer le texte copié", self)
         paste_button.clicked.connect(self._import_pasted_text)
         paste_row.addWidget(paste_button)
+        clipboard_button = QPushButton("Importer le presse-papiers (Chrome)", self)
+        clipboard_button.setToolTip(
+            "Copie la liste des ingrédients visible dans Chrome (Ctrl+C), "
+            "puis clique ici pour l'analyser localement."
+        )
+        clipboard_button.clicked.connect(self._import_clipboard)
+        paste_row.addWidget(clipboard_button)
         paste_row.addStretch(1)
         refresh_button = QPushButton("Actualiser les quantités", self)
         refresh_button.clicked.connect(self._render)
@@ -249,11 +258,35 @@ class CraftAtelierPage(QWidget):
     def _import_pasted_text(self) -> None:
         self._apply_imported_text(self.pasted_text.toPlainText())
 
+    def _import_clipboard(self) -> None:
+        clipboard = QApplication.clipboard()
+        text = clipboard.text() if clipboard is not None else ""
+        if not text.strip():
+            QMessageBox.warning(
+                self,
+                "Presse-papiers vide",
+                "Copie d'abord les ressources visibles de ton atelier dans Chrome "
+                "avec Ctrl+C, puis reviens ici.",
+            )
+            return
+        self.pasted_text.setPlainText(text)
+        self._apply_imported_text(text)
+
     def _apply_imported_text(self, text: str) -> None:
         if not text.strip():
             QMessageBox.warning(self, "Atelier vide", "Colle une liste de ressources Dofusbook.")
             return
+        if "<html" in text.casefold() or '<div id="app"' in text.casefold():
+            QMessageBox.warning(
+                self,
+                "Code source HTML",
+                "Ce fichier contient le programme de Dofusbook, pas tes recettes. "
+                "Ouvre l'atelier normalement dans Chrome et copie le contenu "
+                "visible, pas « Afficher le code source ».",
+            )
+            return
         try:
+            require_accessible_atelier(text)
             requirements = parse_atelier_text(text, self._item_names())
         except (ValueError, KeyError) as error:
             QMessageBox.warning(self, "Import impossible", str(error))
@@ -314,7 +347,9 @@ class CraftAtelierPage(QWidget):
                 self,
                 "Atelier inaccessible",
                 f"Lecture du lien impossible : {error}\n"
-                "Si l'atelier est privé, colle les ressources dans le champ prévu.",
+                "Tu peux importer la liste visible depuis Chrome via le "
+                "bouton « Importer le presse-papiers ». "
+                "Aucun identifiant ni cookie Dofusbook n'est nécessaire.",
             )
             self._render()
             return

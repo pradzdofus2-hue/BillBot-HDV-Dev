@@ -44,3 +44,19 @@ Module **lecture seule** ajouté à l'onglet **Atelier** de chaque compte connec
 uv run pytest tests/test_craft_material_planner.py
 uv run python __main__.py
 ```
+
+
+## Pages Dofusbook bloquées par Cloudflare
+
+Si la lecture automatique du lien affiche « Sorry, you have been blocked »,
+il s'agit d'un refus du site, pas d'une liste de ressources vide.
+Le module ne contourne pas la protection Cloudflare.
+
+Alternative : ouvrir l'atelier normalement dans **Chrome**, attendre de voir
+la liste des ressources, faire **Ctrl+A**, **Ctrl+C** sur la page affichée,
+puis cliquer **Importer le presse-papiers (Chrome)** dans l'onglet Atelier.
+Tu peux aussi sélectionner seulement le tableau des ressources si Chrome copie
+trop d'éléments du menu. Vérifier le résultat avant d'utiliser la liste de courses.
+**Afficher le code source de la page** n'est pas utile : l'application Vue monte
+son interface dans un élément vide et charge les données après l'ouverture.
+Aucun cookie ou identifiant Dofusbook n'est transmis au module.

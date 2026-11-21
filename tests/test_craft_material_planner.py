@@ -116,3 +116,31 @@ def test_javascript_shell_without_ingredients_needs_browser():
 
     assert not _has_visible_quantities("Dofusbook Mes crafts Atelier")
     assert _has_visible_quantities("Peau de Crocabulia\n0 / 4")
+
+
+def test_detect_cloudflare_blocked_page():
+    import pytest
+
+    from src.services.dofusbook_atelier import is_access_blocked, require_accessible_atelier
+
+    block = (
+        "Sorry, you have been blocked\n"
+        "You are unable to access dofusbook.net\n"
+        "Cloudflare Ray ID: a5e26481eb7d6ed9"
+    )
+    assert is_access_blocked(block)
+    with pytest.raises(ValueError, match="Cloudflare"):
+        require_accessible_atelier(block)
+    assert not is_access_blocked("Peau de Crocabulia\n0 / 4")
+
+
+def test_import_copied_browser_row_with_quantities_on_same_line():
+    names = {normalize_item_name("Peau de Crocabulia"): 11}
+    copied = "Peau de Crocabulia\t0 / 4\nPeau inconnue\t0 / 100"
+    assert parse_atelier_text(copied, names) == {11: 4}
+
+
+def test_unknown_inline_item_does_not_change_known_item_amount():
+    names = {normalize_item_name("Étoffe Mystérieuse"): 22}
+    copied = "Étoffe Mystérieuse\t3 / 10\nAutre ressource\t0 / 90"
+    assert parse_atelier_text(copied, names) == {22: 10}
