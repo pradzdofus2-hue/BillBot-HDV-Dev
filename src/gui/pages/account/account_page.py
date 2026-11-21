@@ -13,6 +13,7 @@ from src.core.signals.log_signals import LogSignals
 from src.gui.pages.account.account_summary import AccountSummary
 from src.gui.pages.account.actions.actions_tab import ActionsTab
 lazy from src.core.bot.bot import Bot
+lazy from src.gui.pages.account.craft_atelier_page import CraftAtelierPage
 lazy from src.gui.pages.account.debug.debug_tab import DebugTab
 lazy from src.gui.pages.account.inventory.inventory_tab import InventoryTab
 lazy from src.gui.pages.account.character.character_tab import CharacterTab
@@ -52,6 +53,7 @@ class AccountPage(QWidget):
             "Actions": lambda: self.actions_tab,
             "Character": lambda: CharacterTab(bot, self.stacked_widget, snapshot=snapshot),
             "Inventory": lambda: InventoryTab(bot, self.stacked_widget),
+            "Atelier": lambda: CraftAtelierPage(bot, self.stacked_widget),
             "Debug": lambda: DebugTab(bot, global_log_signals, parent=self.stacked_widget),
         }
         for label in self._factories:
