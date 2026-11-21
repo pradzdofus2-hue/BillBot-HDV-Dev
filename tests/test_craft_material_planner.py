@@ -85,3 +85,34 @@ def test_unknown_name_is_not_skipped_to_find_earlier_known_name():
     0 / 77
     """
     assert parse_atelier_text(copied, names) == {}
+
+
+def test_dofusbook_short_url_is_allowed():
+    from src.services.dofusbook_atelier import _validate_url
+
+    _validate_url("https://d-bk.net/fr/dw/2kN6")
+    _validate_url("https://www.d-bk.net/fr/dw/2kN6")
+    _validate_url("https://www.dofusbook.net/desktop/fr/")
+
+
+def test_dofusbook_short_url_rejects_impostors():
+    import pytest
+
+    from src.services.dofusbook_atelier import _validate_url
+
+    for url in (
+        "http://d-bk.net/fr/dw/2kN6",
+        "https://d-bk.net.attacker.example/fr/dw/2kN6",
+        "https://d-bk.net@attacker.example/fr/dw/2kN6",
+        "https://evil.example/fr/dw/2kN6",
+        "https://user:password@d-bk.net/fr/dw/2kN6",
+    ):
+        with pytest.raises(ValueError):
+            _validate_url(url)
+
+
+def test_javascript_shell_without_ingredients_needs_browser():
+    from src.services.dofusbook_atelier import _has_visible_quantities
+
+    assert not _has_visible_quantities("Dofusbook Mes crafts Atelier")
+    assert _has_visible_quantities("Peau de Crocabulia\\n0 / 4")

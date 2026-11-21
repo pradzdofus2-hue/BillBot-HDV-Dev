@@ -8,7 +8,10 @@ from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
 
 
-_ALLOWED_HOSTS = frozenset({"dofusbook.net", "www.dofusbook.net", "touch.dofusbook.net"})
+_ALLOWED_HOSTS = frozenset({
+    "dofusbook.net", "www.dofusbook.net", "touch.dofusbook.net",
+    "d-bk.net", "www.d-bk.net",
+})
 _BLOCK_TAGS = frozenset({
     "p", "div", "li", "tr", "td", "th", "br", "section", "article",
     "header", "footer", "main", "h1", "h2", "h3", "h4", "span",
@@ -99,9 +102,54 @@ def parse_atelier_text(text: str, gid_by_name: dict[str, int]) -> dict[int, int]
 def _validate_url(url: str) -> None:
     parts = urlsplit(url)
     if parts.scheme != "https" or (parts.hostname or "").rstrip(".").lower() not in _ALLOWED_HOSTS:
-        raise ValueError("Utilise un lien HTTPS provenant de dofusbook.net.")
+        raise ValueError("Utilise un lien HTTPS Dofusbook (dofusbook.net ou d-bk.net).")
     if parts.username or parts.password:
         raise ValueError("Un lien avec des identifiants n'est pas autorisé.")
+
+
+def _render_public_atelier(url: str) -> str:
+    """Read public Dofusbook content after client-side JavaScript has rendered.
+
+    The site serves a JavaScript app: requests alone may only see its shell.
+    This runs in the GUI's existing background import worker, not the UI thread.
+    Only approved Dofusbook document-navigation hosts are allowed.
+    """
+    from playwright.sync_api import Route, sync_playwright
+
+    _validate_url(url)
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+
+            def limit_document_redirects(route: Route) -> None:
+                request = route.request
+                if request.resource_type == "document":
+                    try:
+                        _validate_url(request.url)
+                    except ValueError:
+                        route.abort()
+                        return
+                route.continue_()
+
+            page.route("**/*", limit_document_redirects)
+            page.goto(url, wait_until="domcontentloaded", timeout=25_000)
+            _validate_url(page.url)
+            try:
+                page.wait_for_load_state("networkidle", timeout=7_000)
+            except Exception:
+                # Some single-page apps keep sockets and polling requests open.
+                pass
+            page.wait_for_timeout(1_000)
+            _validate_url(page.url)
+            return page.locator("body").inner_text(timeout=10_000)
+        finally:
+            browser.close()
+
+
+def _has_visible_quantities(text: str) -> bool:
+    # When only the Dofusbook JS shell is present, there is no useful list yet.
+    return bool(re.search(r"\b\d+\s*/\s*\d+\b|\b(?:x|×)\s*\d+\b", text, flags=re.I))
 
 
 def fetch_public_atelier(url: str) -> str:
@@ -138,7 +186,13 @@ def fetch_public_atelier(url: str) -> str:
                 return document
             parser = _VisibleText()
             parser.feed(document)
-            return parser.text()
+            text = parser.text()
+            if _has_visible_quantities(text):
+                return text
+            # Dofusbook is a SPA: HTML may contain navigation only, while
+            # workshop materials load via JavaScript after page navigation.
+            # Playwright is already an AstraBot runtime dependency.
+            return _render_public_atelier(current)
         finally:
             response.close()
     raise ValueError("Trop de redirections Dofusbook.")
