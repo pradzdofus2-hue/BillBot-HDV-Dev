@@ -1,0 +1,80 @@
+import random
+from asyncio import sleep
+from dataclasses import dataclass
+
+from playwright.async_api import Locator, Page
+
+FORM_ERROR_SELECTORS = (
+    ".alert-danger",
+    ".ak-alert-danger",
+    ".ak-error",
+    ".ak-field-error",
+    ".form-error",
+    ".has-error .help-block",
+    ".has-error",
+    "[role='alert']",
+    "[aria-invalid='true']",
+)
+
+ANTIBOT_MARKERS = {
+    "captcha": "captcha",
+    "cloudflare challenge": "cf-challenge",
+    "turnstile": "turnstile",
+    "hcaptcha": "hcaptcha",
+    "aws waf": "aws-waf",
+}
+
+
+def is_waf_or_cloudfront_block(*, status_code: int | None, content: str) -> bool:
+    """Recognize a server-side WAF block without mistaking the WAF SDK for one."""
+    lower_content = content.casefold()
+    if lower_content.startswith("waf/cloudfront blocked"):
+        return True
+    return (
+        status_code in {None, 403}
+        and "request blocked" in lower_content
+        and ("cloudfront" in lower_content or "aws waf" in lower_content)
+    )
+
+
+@dataclass(frozen=True)
+class AntibotDetection:
+    name: str
+    marker: str
+
+
+async def human_wait(*, min_seconds: float, max_seconds: float) -> None:
+    await sleep(random.uniform(min_seconds, max_seconds))
+
+
+async def human_click_selector(page: Page, selector: str) -> None:
+    await page.locator(selector).first.click()
+
+
+async def human_type_locator(locator: Locator, text: str) -> None:
+    await locator.type(text, delay=50)
+
+
+async def human_type_selector(page: Page, selector: str, text: str) -> None:
+    await human_type_locator(page.locator(selector).first, text)
+
+
+def detect_antibot_marker(html: str) -> AntibotDetection | None:
+    lower_html = html.lower()
+    for name, marker in ANTIBOT_MARKERS.items():
+        if marker in lower_html:
+            return AntibotDetection(name=name, marker=marker)
+    return None
+
+
+async def visible_form_error_texts(
+    page: Page, selectors: tuple[str, ...] = FORM_ERROR_SELECTORS
+) -> tuple[str, ...]:
+    errors: list[str] = []
+    for selector in selectors:
+        texts = await page.locator(selector).all_inner_texts()
+        for text in texts:
+            compact_text = " ".join(text.split())
+            if compact_text and compact_text not in errors:
+                errors.append(compact_text)
+    return tuple(errors)

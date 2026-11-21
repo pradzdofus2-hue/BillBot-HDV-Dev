@@ -1,0 +1,272 @@
+from unittest.mock import MagicMock
+import pytest
+
+from DBDofusUnity.dofus_unity_reader.game_constants.item import CategoryItemEnum, ItemEnum
+
+from DBDofusUnity.datas.protos.non_obf.game.gamemap_pb2 import (
+    MapComplementaryInformationEvent,
+    MapCurrentEvent,
+)
+
+from src.core.behaviors.farms.random_farm_behavior import (
+    MAX_CONSECUTIVE_UNEXPECTED_NEW_MAPS,
+    OSCILLATION_REPEAT_THRESHOLD,
+)
+from src.core.behaviors.items.acquire_items_behavior import (
+    AcquireItemsBehavior,
+    ItemToAcquire,
+)
+from src.core.behaviors.movements.auto_trip.auto_trip_behavior import AutoTripErrorCode
+from src.core.behaviors.movements.map_change_behavior import MapChangeError
+from src.core.engine.movements.world.transition_ban import BannedTransition, TransitionBanScope
+from src.core.bot.bot import Bot
+from src.exceptions import UnhandledErrorCodeException
+
+
+class TestFarmRecovery:
+    @staticmethod
+    def _set_no_bank_access(runtime_bot: Bot, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(type(runtime_bot.game_state.player), "is_sub", property(lambda _player: False))
+        monkeypatch.setattr(
+            type(runtime_bot.game_state.player), "is_former_sub", property(lambda _player: False)
+        )
+
+    def test_auto_bot_harvests_without_bank_access_when_pods_are_available(
+        self, runtime_bot: Bot, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._set_no_bank_access(runtime_bot, monkeypatch)
+        runtime_bot.game_state.player.level = 1
+        runtime_bot.game_state.inventory.kamas = 0
+        runtime_bot.game_state.inventory.inventory_weight = 0
+        runtime_bot.game_state.inventory.weight_max = 1_000
+        play_multi_farming = MagicMock()
+        play_fighter = MagicMock()
+        monkeypatch.setattr(runtime_bot.auto_bot_behavior, "play_multi_farming", play_multi_farming)
+        monkeypatch.setattr(runtime_bot.auto_bot_behavior, "play_fighter", play_fighter)
+
+        runtime_bot.auto_bot_behavior.play()
+
+        play_multi_farming.assert_called_once_with()
+        play_fighter.assert_not_called()
+
+    def test_auto_bot_fights_without_bank_access_when_pods_are_full(
+        self, runtime_bot: Bot, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._set_no_bank_access(runtime_bot, monkeypatch)
+        inventory = runtime_bot.game_state.inventory
+        inventory.inventory_weight = 950
+        inventory.weight_max = 1_000
+        play_multi_farming = MagicMock()
+        play_fighter = MagicMock()
+        monkeypatch.setattr(runtime_bot.auto_bot_behavior, "play_multi_farming", play_multi_farming)
+        monkeypatch.setattr(runtime_bot.auto_bot_behavior, "play_fighter", play_fighter)
+
+        runtime_bot.auto_bot_behavior.play()
+
+        play_fighter.assert_called_once_with()
+        play_multi_farming.assert_not_called()
+
+    def test_auto_bot_harvests_with_bank_access_when_pods_are_full(
+        self, runtime_bot: Bot, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(type(runtime_bot.game_state.player), "is_sub", property(lambda _player: True))
+        runtime_bot.game_state.inventory.kamas = 2_000
+        runtime_bot.game_state.inventory.inventory_weight = 950
+        runtime_bot.game_state.inventory.weight_max = 1_000
+        play_multi_farming = MagicMock()
+        play_fighter = MagicMock()
+        monkeypatch.setattr(runtime_bot.auto_bot_behavior, "play_multi_farming", play_multi_farming)
+        monkeypatch.setattr(runtime_bot.auto_bot_behavior, "play_fighter", play_fighter)
+
+        runtime_bot.auto_bot_behavior.play()
+
+        play_multi_farming.assert_called_once_with()
+        play_fighter.assert_not_called()
+
+    @staticmethod
+    def _prepare_sourcing(
+        runtime_bot: Bot, monkeypatch: pytest.MonkeyPatch, *, is_former_sub: bool
+    ) -> tuple[AcquireItemsBehavior, MagicMock]:
+        acquire_items_behavior = runtime_bot.auto_bot_behavior.auto_equipment_behavior.acquire_items_behavior
+        sale_hotel_start = MagicMock()
+        monkeypatch.setattr(acquire_items_behavior.sale_hotel_buy_behavior, "start", sale_hotel_start)
+        monkeypatch.setattr(acquire_items_behavior.load_from_bank_behavior, "start", MagicMock())
+        monkeypatch.setattr(
+            type(runtime_bot.game_state.player),
+            "is_sub",
+            property(lambda _player_state: False),
+        )
+        monkeypatch.setattr(
+            type(runtime_bot.game_state.player),
+            "is_former_sub",
+            property(lambda _player_state: is_former_sub),
+        )
+        runtime_bot.game_state.inventory.bank_content_known = True
+        return acquire_items_behavior, sale_hotel_start
+
+    def test_sourcing_skips_sale_hotel_for_never_subscribed_account(
+        self, runtime_bot: Bot, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        acquire_items_behavior, sale_hotel_start = self._prepare_sourcing(
+            runtime_bot, monkeypatch, is_former_sub=False
+        )
+
+        acquire_items_behavior.start(
+            items=[
+                ItemToAcquire(
+                    item_gid=ItemEnum.AMULETTE_AKWADALA,
+                    max_kamas=10_000,
+                    category=CategoryItemEnum.EQUIPMENT,
+                )
+            ],
+            callback=None,
+            parent=None,
+        )
+
+        sale_hotel_start.assert_not_called()
+
+    def test_sourcing_keeps_sale_hotel_for_former_subscriber(
+        self, runtime_bot: Bot, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        acquire_items_behavior, sale_hotel_start = self._prepare_sourcing(
+            runtime_bot, monkeypatch, is_former_sub=True
+        )
+
+        acquire_items_behavior.start(
+            items=[
+                ItemToAcquire(
+                    item_gid=ItemEnum.AMULETTE_AKWADALA,
+                    max_kamas=10_000,
+                    category=CategoryItemEnum.EQUIPMENT,
+                )
+            ],
+            callback=None,
+            parent=None,
+        )
+
+        sale_hotel_start.assert_called_once()
+
+    def test_interactive_transition_accepts_fight_interruption(self, runtime_bot: Bot) -> None:
+        edge_behavior = runtime_bot.fighter_behavior.random_farm_behavior.edge_behavior
+        edge = MagicMock()
+        transition = MagicMock()
+        edge.m_to.m_mapId = 123
+        runtime_bot.game_state.map.map_id = 124
+        runtime_bot.game_state.fight.in_fight = True
+
+        edge_behavior.on_interactive_behavior_finished(
+            MapChangeError.UNEXPECTED_NEW_MAP,
+            edge=edge,
+            transition=transition,
+            element_id=456,
+        )
+
+    def test_interactive_transition_rejects_unexpected_roleplay_map(self, runtime_bot: Bot) -> None:
+        edge_behavior = runtime_bot.fighter_behavior.random_farm_behavior.edge_behavior
+        edge = MagicMock()
+        transition = MagicMock()
+        edge.m_to.m_mapId = 123
+        runtime_bot.game_state.map.map_id = 124
+        runtime_bot.game_state.fight.in_fight = False
+
+        with pytest.raises(UnhandledErrorCodeException):
+            edge_behavior.on_interactive_behavior_finished(
+                MapChangeError.UNEXPECTED_NEW_MAP,
+                edge=edge,
+                transition=transition,
+                element_id=456,
+            )
+
+    def test_incomplete_fight_initialization_requests_disconnect(
+        self, runtime_bot: Bot, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        attacker_behavior = runtime_bot.fighter_behavior.attacker_behavior
+        request_disconnect = MagicMock()
+        attack_enemy = MagicMock()
+        runtime_bot.game_state.fight.in_fight = True
+        runtime_bot.event_manager.request_disconnect_callback = request_disconnect
+        monkeypatch.setattr(attacker_behavior, "attack_enemy", attack_enemy)
+
+        attacker_behavior.on_fight_map_information_timeout(-20_003)
+
+        request_disconnect.assert_called_once_with()
+        attack_enemy.assert_not_called()
+
+    def test_path_blocked_by_forbidden_transition_requests_disconnect(self, runtime_bot: Bot) -> None:
+        random_farm_behavior = runtime_bot.fighter_behavior.random_farm_behavior
+        request_disconnect = MagicMock()
+        runtime_bot.event_manager.request_disconnect_callback = request_disconnect
+        runtime_bot.game_state.map.banned_edge_transitions.add(
+            BannedTransition(MagicMock(), MagicMock(), MagicMock(), TransitionBanScope.SESSION)
+        )
+
+        random_farm_behavior.on_auto_trip_world_behavior_finished(AutoTripErrorCode.PATH_NOT_FOUND)
+
+        request_disconnect.assert_called_once_with()
+
+    def test_landing_on_an_unexpected_map_forbids_the_transition(self, runtime_bot: Bot) -> None:
+        edge_behavior = runtime_bot.fighter_behavior.random_farm_behavior.edge_behavior
+        edge = MagicMock()
+        transition = MagicMock()
+        edge.m_to.m_mapId = 147981825
+        runtime_bot.game_state.fight.in_fight = False
+
+        edge_behavior.on_map_current_event(
+            MapCurrentEvent(map_id=149947392), edge=edge, transition=transition
+        )
+
+        assert runtime_bot.game_state.map.has_session_banned_transitions
+
+    def test_repeated_unexpected_map_changes_request_disconnect(self, runtime_bot: Bot) -> None:
+        random_farm_behavior = runtime_bot.fighter_behavior.random_farm_behavior
+        request_disconnect = MagicMock()
+        runtime_bot.event_manager.request_disconnect_callback = request_disconnect
+        edge = MagicMock()
+
+        for _ in range(MAX_CONSECUTIVE_UNEXPECTED_NEW_MAPS):
+            random_farm_behavior.edge_path = [edge]
+            random_farm_behavior.on_edge_behavior_finished(MapChangeError.UNEXPECTED_NEW_MAP, edge=edge)
+
+        request_disconnect.assert_called_once_with()
+
+    def test_an_exit_out_of_reach_is_only_banned_for_the_current_map_stay(self, runtime_bot: Bot) -> None:
+        edge_behavior = runtime_bot.fighter_behavior.random_farm_behavior.edge_behavior
+        edge = MagicMock()
+        transition = MagicMock()
+
+        edge_behavior.handle_unreachable_transition(edge, transition)
+
+        assert not runtime_bot.game_state.map.has_session_banned_transitions
+        assert (edge.m_from, edge.m_to, transition) in (
+            runtime_bot.game_state.get_world_transition_context().forbidden_edge_transitions
+        )
+
+        runtime_bot.event_manager.process_msg(
+            MapComplementaryInformationEvent(map_id=runtime_bot.game_state.map.map_id)
+        )
+
+        assert not runtime_bot.game_state.map.banned_edge_transitions
+
+    def test_farm_route_bouncing_between_two_maps_reroutes_instead_of_looping_forever(
+        self, runtime_bot: Bot, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        random_farm_behavior = runtime_bot.fighter_behavior.random_farm_behavior
+        map_a, map_b = 193331717, 193332229
+        random_farm_behavior.map_ids = {map_a, map_b, 999}
+        runtime_bot.game_state.map.map_id = map_b
+        for _ in range(OSCILLATION_REPEAT_THRESHOLD):
+            random_farm_behavior._recent_map_ids.append(map_a)
+            random_farm_behavior._recent_map_ids.append(map_b)
+
+        bouncing_edge = MagicMock()
+        bouncing_edge.m_to.m_mapId = map_a
+        monkeypatch.setattr(random_farm_behavior, "get_next_weighted_path", lambda: [bouncing_edge])
+        auto_trip_start = MagicMock()
+        monkeypatch.setattr(random_farm_behavior.auto_trip_smart_behavior, "start", auto_trip_start)
+
+        random_farm_behavior._recalculate_edge_path()
+
+        assert random_farm_behavior.edge_path is None
+        assert not random_farm_behavior._recent_map_ids
+        auto_trip_start.assert_called_once()
+        assert auto_trip_start.call_args.kwargs["map_ids"] == {999}

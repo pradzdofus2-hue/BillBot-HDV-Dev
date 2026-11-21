@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+import "common.proto";
+
+import "guild_member_shop.proto";
+
+package com.ankama.dofus.server.game.protocol.guild.member;
+
+message GuildMemberParametersChangeRequest {
+	int64 member_id = 1;
+	int32 rank_id = 2;
+	int32 experience_given_percent = 3;
+}
+
+message GuildMemberWarnOnConnectionStartRequest {
+}
+
+message GuildMemberWarnOnConnectionStopRequest {
+}
+
+message GuildMemberWarnOnConnectionSetRequest {
+	bool enable = 1;
+	string guild_id = 2;
+}
+
+message GuildMemberOnlineStatusEvent {
+	int64 member_id = 1;
+	bool online = 2;
+}
+
+message GuildMembersEvent {
+	repeated .com.ankama.dofus.server.game.protocol.common.Character members = 1;
+}
+
+message GuildMemberUpdateEvent {
+	.com.ankama.dofus.server.game.protocol.common.Character member = 1;
+}
+
+message GuildMemberLeaveEvent {
+	bool kicked = 1;
+	int64 player_id = 2;
+}
+
+message GuildLeftEvent {
+}
+
+message GuildMembershipEvent {
+	.com.ankama.dofus.server.game.protocol.common.GuildInformation guild_information = 1;
+	int32 rank_id = 2;
+	int32 guildaton_count = 3;
+	int32 unknown_four_hundred_seventy_one = 4;
+}
+
+message GuildJoinedEvent {
+	.com.ankama.dofus.server.game.protocol.common.GuildInformation guild_information = 1;
+	int32 rank_id = 2;
+}
+
+message UnknownTwoHundredForty {
+	int32 unknown_four_hundred_seventy_four = 1;
+	.com.ankama.dofus.server.game.protocol.guild.member.UnknownTwoHundredForty.UnknownTwoHundredFortyOne unknown_four_hundred_seventy_five = 2;
+	message UnknownTwoHundredFortyOne {
+		int32 unknown_four_hundred_seventy_two = 1;
+		map<int32, .com.ankama.dofus.server.game.protocol.guild.member.UnknownTwoHundredFortyTwo> unknown_four_hundred_seventy_three = 2;
+	}
+}
+
+message UnknownTwoHundredFortyTwo {
+	int32 unknown_four_hundred_seventy_six = 1;
+	.com.ankama.dofus.server.game.protocol.guild.member.shop.UnknownTwoHundredFortySix unknown_four_hundred_seventy_seven = 2;
+}
+
+message UnknownTwoHundredFortyThree {
+	.com.ankama.dofus.server.game.protocol.guild.member.shop.UnknownTwoHundredFortySix unknown_four_hundred_seventy_eight = 1;
+	int32 unknown_four_hundred_seventy_nine = 2;
+}
+
+message UnknownTwoHundredFortyFour {
+	int32 unknown_four_hundred_eighty = 1;
+}
+
+message UnknownTwoHundredFortyFive {
+	int32 unknown_four_hundred_eighty_one = 1;
+}

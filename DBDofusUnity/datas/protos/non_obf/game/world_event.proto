@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+import "common.proto";
+
+package com.ankama.dofus.server.game.protocol.world_event;
+
+message UnknownFiveHundredFive {}
+
+
+message UnknownFiveHundredSix {
+}
+
+message UnknownFiveHundredSeven {
+	int32 award_type = 2;
+	int32 unknown_eight_hundred_sixty_seven = 3;
+	string player_name = 4;
+}
+
+message WorldEventOngoingListEvent {
+	repeated .com.ankama.dofus.server.game.protocol.world_event.UnknownFiveHundredSix events = 1;
+}
+
+message WorldEventDetailEvent {
+	.com.ankama.dofus.server.game.protocol.world_event.WorldEventDetailEvent.UnknownFiveHundredFifteen unknown_eight_hundred_eighty_two = 1;
+	message UnknownFiveHundredFifteen {
+		int32 winner_count = 1;
+		repeated .com.ankama.dofus.server.game.protocol.world_event.UnknownFiveHundredEleven players = 2;
+		UnknownFiveHundredSixteen unknown_eight_hundred_eighty_one = 3;
+		enum UnknownFiveHundredSixteen {
+			UNKNOWN_FIVE_HUNDRED_SIXTEEN_UNSPECIFIED = 0;
+		}
+	}
+	message UnknownFiveHundredSeventeen {
+	}
+}
+
+message UnknownFiveHundredEleven {
+	int32 rank = 1;
+	int32 score = 2;
+	.com.ankama.dofus.server.game.protocol.world_event.UnknownFiveHundredEight unknown_eight_hundred_seventy_three = 3;
+	.com.ankama.dofus.server.game.protocol.world_event.UnknownFiveHundredSeven player = 4;
+	.com.ankama.dofus.server.game.protocol.world_event.UnknownFiveHundredTen unknown_eight_hundred_seventy_four = 5;
+	.com.ankama.dofus.server.game.protocol.world_event.UnknownFiveHundredFourteen unknown_eight_hundred_seventy_five = 6;
+}
+
+message UnknownFiveHundredEight {
+	int32 unknown_eight_hundred_sixty_eight = 1;
+}
+
+message UnknownFiveHundredTen {
+	.com.ankama.dofus.server.game.protocol.common.SocialEmblem unknown_eight_hundred_seventy_one = 1;
+	string unknown_eight_hundred_seventy_two = 2;
+}
+
+message UnknownFiveHundredFourteen {
+	string unknown_eight_hundred_seventy_eight = 1;
+	int32 unknown_eight_hundred_seventy_nine = 2;
+	.com.ankama.dofus.server.game.protocol.common.SocialEmblem unknown_eight_hundred_eighty = 3;
+}
+
+message WorldEventOccurrencesEvent {
+	repeated .com.ankama.dofus.server.game.protocol.world_event.WorldEventOccurrence infos = 1;
+}
+
+message UnknownFiveHundredNine {
+	string unknown_eight_hundred_sixty_nine = 1;
+	int32 unknown_eight_hundred_seventy = 2;
+}
+
+message UnknownFiveHundredTwelve {
+	string unknown_eight_hundred_seventy_six = 1;
+	string unknown_eight_hundred_seventy_seven = 2;
+}
+
+message WorldEventDetailRequest {
+	string event_uuid = 1;
+}
+
+message WorldEventTypeRequest {
+	int32 type = 1;
+}
+
+message WorldEventOccurrencesRequest {
+}
+
+message WorldEventSelfOccurrencesRequest {
+}
+
+message UnknownFiveHundredThirteen {
+}
+
+message WorldEventOccurrence {
+	string done_date = 1;
+	string event_uuid = 2;
+	int32 type_id = 3;
+}

@@ -1,0 +1,32 @@
+{
+    "ruff.path": [
+        "${workspaceFolder}/.venv/Scripts/ruff.exe"
+    ],
+    "python.testing.pytestArgs": [
+        "-s"
+    ],
+    "python.languageServer": "None",
+    "ty.diagnosticMode": "workspace",
+    "ty.inlayHints.variableTypes": false,
+    "ty.inlayHints.callArgumentNames": false,
+    "files.watcherExclude": {
+        "**/DBDofusUnity/datas/**": true,
+        "**/DBDofusUnity/Il2CppInspectorRedux/**": true,
+        "**/DBDofusUnity/protodec/**": true,
+        "**/.venv/**": true,
+        "**/__pycache__/**": true
+    },
+    "search.exclude": {
+        "**/DBDofusUnity/datas": true,
+        "**/DBDofusUnity/Il2CppInspectorRedux": true,
+        "**/DBDofusUnity/protodec": true,
+        "**/.venv": true,
+        "**/__pycache__": true
+    },
+    "explorer.fileNesting.enabled": true,
+    "explorer.fileNesting.expand": false,
+    "explorer.fileNesting.patterns": {
+        "pyproject.toml": "uv.lock,AstraBot.spec, pyrightconfig.json, .python-version",
+        ".env": ".env.*"
+    }
+}

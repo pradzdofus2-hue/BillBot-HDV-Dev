@@ -1,0 +1,204 @@
+import os
+import sys
+from concurrent.futures import ProcessPoolExecutor
+from itertools import repeat
+from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile
+
+import msgspec
+from tqdm import tqdm
+
+ROOT = Path(__file__).resolve().parents[2]
+for import_root in (ROOT, ROOT / "AnkamaLauncherEmulator", ROOT / "DBDofusUnity"):
+    sys.path.insert(0, str(import_root))
+
+from DBDofusUnity.consts import (
+    BUNDLES_ROOT,
+    DATA_BUNDLES_ROOT,
+    I18N_OUTPUT_PATH,
+    I18N_PATH,
+    MAPS_ARCHIVE_PATH,
+    PATH_DATAS,
+    PATH_MAPS,
+    PATH_STANDALONE_BUNDLES,
+    STANDALONE_BUNDLES_ROOT,
+)
+from DBDofusUnity.dofus_unity_reader.bundle_export import iter_bundle_data
+from DBDofusUnity.dofus_unity_reader.data_center.data_reader import (
+    FILEPATH_BY_MODEL,
+    DataReader,
+    REQUIRED_DATA_FILENAMES,
+)
+from DBDofusUnity.dofus_unity_reader.extraction_manifest import ExtractionManifest
+from DBDofusUnity.dofus_unity_reader.generator.i18n import I18NReader
+from DBDofusUnity.dofus_unity_reader.generator.maps import export_map_bundle
+from DBDofusUnity.dofus_unity_reader.models.datas.map_positions_root import MapInformationsRoot
+from DBDofusUnity.dofus_unity_reader.models.world_graph import WorldGraphData
+from DBDofusUnity.dofus_unity_reader.data_center.i18n import I18N
+from src.core.engine.crafts.recipes import is_supported_craft_recipe
+from src.services.display_catalog import DISPLAY_CATALOG_PATH, DisplayCatalog, RecipeEntry, ZoneEntry
+
+MANIFEST_PATH = BUNDLES_ROOT / ".extraction_manifest.json"
+DATA_MODEL_BY_FILENAME = {filename: model for model, filename in FILEPATH_BY_MODEL.items()}
+
+
+def _write_json(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".json.tmp")
+    try:
+        temporary.write_bytes(content)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def get_world_graph_datas(*, manifest: ExtractionManifest) -> None:
+    print("get world graph")
+    bundle_path = next(PATH_STANDALONE_BUNDLES.glob("*worldassets_assets_all*.bundle"))
+    output_path = STANDALONE_BUNDLES_ROOT / WorldGraphData.FILE_PATH
+    if manifest.is_up_to_date(bundle_path, output_paths=[output_path]):
+        return
+    exports = list(iter_bundle_data(bundle_path, names={"world-graph"}))
+    if len(exports) != 1:
+        raise ValueError(f"Expected one world graph in {bundle_path}, found {len(exports)}")
+    content = msgspec.json.decode(msgspec.json.encode(exports[0][1]), type=WorldGraphData)
+    _write_json(output_path, msgspec.json.encode(content))
+    manifest.mark_success(bundle_path, output_paths=[output_path])
+    manifest.save()
+
+
+def get_map_datas(*, manifest: ExtractionManifest) -> None:
+    print("get maps")
+    catalog_path = DATA_BUNDLES_ROOT / FILEPATH_BY_MODEL[MapInformationsRoot]
+    catalog = msgspec.json.decode(catalog_path.read_bytes(), type=MapInformationsRoot)
+    names = frozenset(f"map_{entry.id}" for entry in catalog)
+
+    map_bundles = sorted(
+        path
+        for path in PATH_MAPS.iterdir()
+        if "mapdata_assets_world" in path.name and path.name.endswith(".bundle")
+    )
+    if not map_bundles:
+        raise FileNotFoundError(f"No map bundles found in {PATH_MAPS}")
+    if all(manifest.is_up_to_date(path, output_paths=[MAPS_ARCHIVE_PATH]) for path in map_bundles):
+        return
+
+    temporary_archive_path = MAPS_ARCHIVE_PATH.with_suffix(".zip.tmp")
+    temporary_archive_path.unlink(missing_ok=True)
+    try:
+        with ZipFile(
+            temporary_archive_path,
+            "w",
+            compression=ZIP_DEFLATED,
+            compresslevel=6,
+            allowZip64=True,
+        ) as archive:
+            workers = min(4, os.process_cpu_count() or 1, len(map_bundles))
+            with ProcessPoolExecutor(max_workers=workers) as executor:
+                results = executor.map(export_map_bundle, map_bundles, repeat(names), buffersize=workers)
+                for exports in tqdm(results, total=len(map_bundles)):
+                    for name, payload in exports:
+                        archive.writestr(f"map/{name}.json", payload)
+        temporary_archive_path.replace(MAPS_ARCHIVE_PATH)
+    finally:
+        temporary_archive_path.unlink(missing_ok=True)
+
+    for path in map_bundles:
+        manifest.mark_success(path, output_paths=[MAPS_ARCHIVE_PATH])
+    manifest.save()
+
+
+def get_datas(*, manifest: ExtractionManifest) -> None:
+    print("get content data")
+    for path in tqdm(sorted(PATH_DATAS.iterdir())):
+        if not path.is_file() or path.suffix != ".bundle":
+            continue
+        if manifest.is_up_to_date(path):
+            continue
+        output_paths: list[Path] = []
+        required_names = {Path(filename).stem for filename in REQUIRED_DATA_FILENAMES}
+        for name, data in iter_bundle_data(path, names=required_names):
+            filename = f"{name}.json"
+            content = msgspec.json.encode(data)
+            msgspec.json.decode(content, type=DATA_MODEL_BY_FILENAME[filename])
+            output_path = DATA_BUNDLES_ROOT / filename
+            _write_json(output_path, content)
+            output_paths.append(output_path)
+        manifest.mark_success(path, output_paths=output_paths)
+        manifest.save()
+
+
+def get_i18n_datas(*, manifest: ExtractionManifest) -> None:
+    print("get i18n")
+    source_path = Path(I18N_PATH)
+    if manifest.is_up_to_date(source_path, output_paths=[I18N_OUTPUT_PATH]):
+        print("i18n is up to date")
+        return
+    I18NReader.get_datas()
+    manifest.mark_success(source_path, output_paths=[I18N_OUTPUT_PATH])
+    manifest.save()
+
+
+def _clean_runtime_outputs() -> None:
+    for directory, required in (
+        (DATA_BUNDLES_ROOT, REQUIRED_DATA_FILENAMES),
+        (STANDALONE_BUNDLES_ROOT, {WorldGraphData.FILE_PATH}),
+    ):
+        for path in directory.rglob("*"):
+            if path.is_file() and (path.parent != directory or path.name not in required):
+                path.unlink()
+
+
+def build_display_catalog() -> DisplayCatalog:
+    reader = DataReader()
+    names = I18N().name_by_id
+    areas = sorted(
+        (ZoneEntry(area.id, names[area.nameId]) for area in reader.area_by_id.values()),
+        key=lambda entry: entry.name,
+    )
+    sub_areas: dict[int, list[ZoneEntry]] = {}
+    for area in sorted(reader.sub_area_by_id.values(), key=lambda area: names[area.nameId]):
+        sub_areas.setdefault(area.areaId, []).append(ZoneEntry(area.id, names[area.nameId]))
+    map_names: dict[int, str] = {}
+    positions: dict[int, tuple[int, int]] = {}
+    for map_id, position in reader.map_info_by_map_id.items():
+        positions[map_id] = position.posX, position.posY
+        sub_area = reader.sub_area_by_id.get(position.subAreaId)
+        if sub_area is not None:
+            map_names[map_id] = names[sub_area.nameId]
+    recipes: dict[int, RecipeEntry] = {}
+    for recipe in reader.recipes:
+        if not is_supported_craft_recipe(recipe):
+            continue
+        item = reader.item_by_id[recipe.resultId]
+        recipes[recipe.resultId] = RecipeEntry(
+            recipe, names[item.nameId], names[reader.job_by_id[recipe.jobId].nameId], item.level or 0
+        )
+    return DisplayCatalog(
+        areas,
+        sub_areas,
+        map_names,
+        positions,
+        {key: names[job.nameId] for key, job in reader.job_by_id.items()},
+        {key: names[int(breed.shortNameId)] for key, breed in reader.breed_by_id.items()},
+        {key: names[server.nameId] for key, server in reader.server_by_id.items()},
+        recipes,
+    )
+
+
+
+def update_all_datas() -> None:
+    BUNDLES_ROOT.mkdir(parents=True, exist_ok=True)
+    manifest = ExtractionManifest.load(MANIFEST_PATH)
+    get_datas(manifest=manifest)
+    get_world_graph_datas(manifest=manifest)
+    get_i18n_datas(manifest=manifest)
+    get_map_datas(manifest=manifest)
+    manifest.save()
+
+    _write_json(DISPLAY_CATALOG_PATH, msgspec.json.encode(build_display_catalog()))
+    _clean_runtime_outputs()
+
+
+if __name__ == "__main__":
+    update_all_datas()

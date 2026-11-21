@@ -1,0 +1,37 @@
+name: Verify
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - name: Verify LFS assets
+        run: git lfs fsck
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "latest"
+      - name: Set up Python and dependencies
+        run: uv sync --frozen
+      - name: Lint
+        run: uv run ruff check .
+      - name: Type check
+        run: uv run ty check
+      - name: Test
+        run: uv run pytest tests
+
+  release:
+    needs: verify
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml

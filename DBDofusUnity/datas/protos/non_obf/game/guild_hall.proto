@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package com.ankama.dofus.server.game.protocol.guild.hall;
+
+message GuildHallSetRequest {
+}
+
+message GuildHallSetResultEvent {
+}
+
+message UnknownTwoHundredThirtyFive {
+	int32 unknown_four_hundred_sixty_one = 1;
+}
+
+message UnknownTwoHundredThirtySix {
+}
+
+message UnknownTwoHundredThirtySeven {
+}

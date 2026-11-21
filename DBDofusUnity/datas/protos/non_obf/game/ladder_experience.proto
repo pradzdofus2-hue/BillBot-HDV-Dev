@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+import "ladder.proto";
+
+package com.ankama.dofus.server.game.protocol.ladder.experience;
+
+message ExperienceLadderPageRequest {
+	repeated bool unknown_six_hundred_seventy_six = 1;
+	int32 server_id = 2;
+}
+
+message ExperienceLadderSelfRankRequest {
+	int32 server_id = 1;
+}
+
+message ExperienceLadderEntry {
+	int64 experience = 1;
+	.com.ankama.dofus.server.game.protocol.ladder.LadderCharacter character = 2;
+	int64 rank = 3;
+}
+
+message ExperienceLadderPageEvent {
+	repeated .com.ankama.dofus.server.game.protocol.ladder.experience.ExperienceLadderEntry entries = 1;
+}
+
+message UnknownThreeHundredSixtySeven {
+	string unknown_six_hundred_seventy_seven = 1;
+	int32 unknown_six_hundred_seventy_eight = 2;
+}
+
+message UnknownThreeHundredSixtyEight {
+	repeated .com.ankama.dofus.server.game.protocol.ladder.experience.ExperienceLadderEntry entries = 1;
+}
+
+message ExperienceLadderSelfRankEvent {
+	.com.ankama.dofus.server.game.protocol.ladder.experience.ExperienceLadderEntry entry = 1;
+}

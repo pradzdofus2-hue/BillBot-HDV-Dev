@@ -1,0 +1,108 @@
+from typing import Any
+
+import numpy as np
+from tests.fixtures.proto_mapper.matching_builders import simple_workspace
+
+from DBDofusUnity.proto_mapper_assembly.interfaces.assembly_access import AccessTraceDocument
+from DBDofusUnity.proto_mapper_assembly.affinities.declaration_order_alignment import (
+    build_declaration_order_affinity,
+)
+from DBDofusUnity.proto_mapper_assembly.interfaces.affinity import AffinitySignalInputs
+
+_OBF_CLASSES = ("obf_a1", "obf_a2", "obf_a3")
+_NON_OBF_CLASSES = ("ClearA1", "ClearA2", "ClearA3", "ClearUnwrapped")
+_TIED_SCORES = np.array(
+    [
+        [0.5, 0.5, 0.5],
+        [0.5, 0.5, 0.5],
+        [0.5, 0.5, 0.5],
+        [0.1, 0.1, 0.1],
+    ]
+)
+
+
+def _access_trace(message_by_alias: dict[str, str]) -> AccessTraceDocument:
+    functions_by_address: dict[str, Any] = {}
+    for index, (alias_name, message_cls) in enumerate(message_by_alias.items()):
+        address = 0x1000 + index * 0x10
+        functions_by_address[hex(address)] = {
+            "start_address": address,
+            "end_address": address + 1,
+            "size": 1,
+            "access_infos": [
+                {
+                    "type": "field",
+                    "access_kind": "read",
+                    "cls": message_cls,
+                    "field_name": "value_",
+                    "property_name": "Value",
+                    "field_offset": 0x18,
+                    "index_in_function": 0,
+                    "instruction_address": address,
+                }
+            ],
+            "opcode_histogram": {},
+            "aliases": [
+                {
+                    "name": alias_name,
+                    "parameters": [],
+                    "return_type": "Boolean",
+                    "group": "Core.dll/wrapper",
+                    "access_infos": [],
+                }
+            ],
+            "stable_callees": [],
+            "cfg_stats": None,
+        }
+    return AccessTraceDocument.model_validate({"functions_by_address": functions_by_address})
+
+
+def _build_affinity(
+    obf_message_by_alias: dict[str, str],
+    non_obf_message_by_alias: dict[str, str],
+    scores_matrix: np.ndarray = _TIED_SCORES,
+) -> tuple[np.ndarray, np.ndarray]:
+    return build_declaration_order_affinity(
+        AffinitySignalInputs(
+            workspace=simple_workspace(obf_classes=_OBF_CLASSES, non_obf_classes=_NON_OBF_CLASSES),
+            base_scores_matrix=scores_matrix,
+            obf_access_trace=_access_trace(obf_message_by_alias),
+            non_obf_access_trace=_access_trace(non_obf_message_by_alias),
+        )
+    )
+
+
+_NON_OBF_SEGMENT = {
+    "own::Boolean bara(x)": "ClearA1",
+    "own::Boolean barb(x)": "ClearA2",
+    "own::Boolean barc(x)": "ClearA3",
+}
+
+
+class TestDeclarationOrderAlignment:
+    def test_the_obfuscated_naming_order_drives_the_pairing_not_the_matrix_order(self) -> None:
+        affinity_matrix, _ = _build_affinity(
+            {
+                "wrp::Boolean zsa(y)": "obf_a3",
+                "wrp::Boolean zsb(y)": "obf_a1",
+                "wrp::Boolean zsc(y)": "obf_a2",
+            },
+            _NON_OBF_SEGMENT,
+        )
+
+        assert affinity_matrix[0, 2] == 1.0
+        assert affinity_matrix[1, 0] == 1.0
+        assert affinity_matrix[2, 1] == 1.0
+
+    def test_readable_class_names_carry_no_order_and_are_ignored(self) -> None:
+        affinity_matrix, applicable_mask = _build_affinity(
+            {
+                "Core.Handler::Boolean HandleAlpha(y)": "obf_a1",
+                "Core.Handler::Boolean HandleBeta(y)": "obf_a2",
+                "Core.Handler::Boolean HandleGamma(y)": "obf_a3",
+            },
+            _NON_OBF_SEGMENT,
+        )
+
+        assert not applicable_mask.any()
+        assert not affinity_matrix.any()

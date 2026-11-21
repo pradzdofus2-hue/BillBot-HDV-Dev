@@ -1,0 +1,11 @@
+* text=auto eol=lf
+
+DBDofusUnity/Il2CppInspectorRedux/Il2CppTests/TestExpectedResults/* linguist-vendored
+DBDofusUnity/Il2CppInspectorRedux/Il2CppInspector.Common/Cpp/Il2CppAPIHeaders/* linguist-vendored
+DBDofusUnity/Il2CppInspectorRedux/Il2CppInspector.Common/Cpp/UnityHeaders/* linguist-vendored
+DBDofusUnity/dofus_unity_reader/models/datas/soundbonesroot.py linguist-generated=true
+
+DBDofusUnity/datas/proto_mapper/obf/enum_accesses.json filter=lfs diff=lfs merge=lfs -text
+DBDofusUnity/datas/bundles/data/SpellLevelsRoot.json filter=lfs diff=lfs merge=lfs -text
+DBDofusUnity/datas/bundles/data/ItemsRoot.json filter=lfs diff=lfs merge=lfs -text
+DBDofusUnity/datas/bundles/** filter=lfs diff=lfs merge=lfs -text
