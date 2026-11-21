@@ -8,11 +8,12 @@ from DBDofusUnity.dofus_unity_reader.data_center.i18n import I18N
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
-    QCompleter,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -24,7 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.engine.crafts.material_planner import compare_materials, craft_requirements
-from src.services.display_catalog import load_display_catalog
+from src.services.full_recipe_catalog import load_full_recipe_catalog, normalized_recipe_query
 from src.services.dofusbook_atelier import (
     fetch_public_atelier,
     normalize_item_name,
@@ -42,7 +43,14 @@ class CraftAtelierPage(QWidget):
     def __init__(self, bot: Bot, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.bot = bot
-        self.catalog = load_display_catalog()
+        self.recipe_catalog = load_full_recipe_catalog()
+        self._sorted_recipes = sorted(
+            self.recipe_catalog.items(), key=lambda pair: (normalized_recipe_query(pair[1].name), pair[0])
+        )
+        self._recipe_by_name: dict[str, list[int]] = {}
+        for gid, entry in self.recipe_catalog.items():
+            self._recipe_by_name.setdefault(normalized_recipe_query(entry.name), []).append(gid)
+        self._selected_recipe_id: int | None = None
         self.crafts: dict[int, int] = {}
         self.external_requirements: dict[int, int] = {}
         self.using_dofusbook = False
@@ -54,7 +62,7 @@ class CraftAtelierPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
-        title = QLabel("Atelier de craft — Dofusbook + Banque / Inventaire", self)
+        title = QLabel("Atelier de craft — Recettes DOFUS + Banque / Inventaire", self)
         title.setStyleSheet("font-size: 17px; font-weight: 600;")
         layout.addWidget(title)
 
@@ -66,16 +74,24 @@ class CraftAtelierPage(QWidget):
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
 
-        layout.addWidget(QLabel("1. Ajouter un équipement ou une recette locale", self))
+        layout.addWidget(QLabel(
+            f"1. Recettes du jeu : {len(self.recipe_catalog):,} recettes locales disponibles "
+            "(toutes les professions reconnues dans les données du client)",
+            self,
+        ))
         craft_row = QHBoxLayout()
+        self.profession_combo = QComboBox(self)
+        self.profession_combo.addItem("Tous les métiers", userData=None)
+        job_names = {
+            int(entry.recipe.jobId): entry.job_name for entry in self.recipe_catalog.values()
+        }
+        for job_id, job_name in sorted(
+            job_names.items(), key=lambda pair: normalized_recipe_query(pair[1])
+        ):
+            self.profession_combo.addItem(job_name, userData=job_id)
+        craft_row.addWidget(self.profession_combo)
         self.item_edit = QLineEdit(self)
-        self.item_edit.setPlaceholderText("Nom de l'objet (ex. Coiffe du Bouftou)")
-        recipe_names = sorted(entry.name for entry in self.catalog.recipe_by_id.values())
-        completer = QCompleter(recipe_names, self)
-        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        completer.setFilterMode(Qt.MatchFlag.MatchContains)
-        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
-        self.item_edit.setCompleter(completer)
+        self.item_edit.setPlaceholderText("Rechercher un objet à crafter…")
         craft_row.addWidget(self.item_edit, 1)
         self.amount = QSpinBox(self)
         self.amount.setRange(1, 9999)
@@ -86,6 +102,15 @@ class CraftAtelierPage(QWidget):
         add_button.clicked.connect(self._add_craft)
         craft_row.addWidget(add_button)
         layout.addLayout(craft_row)
+        self.recipe_counter = QLabel(self)
+        layout.addWidget(self.recipe_counter)
+        self.recipe_results = QListWidget(self)
+        self.recipe_results.setMaximumHeight(124)
+        self.recipe_results.itemClicked.connect(self._select_recipe_result)
+        layout.addWidget(self.recipe_results)
+        self.item_edit.textChanged.connect(self._on_recipe_query_changed)
+        self.profession_combo.currentIndexChanged.connect(self._update_recipe_results)
+        self._update_recipe_results()
 
         craft_list_row = QHBoxLayout()
         self.craft_list = QListWidget(self)
@@ -96,7 +121,7 @@ class CraftAtelierPage(QWidget):
         craft_list_row.addWidget(remove_button)
         layout.addLayout(craft_list_row)
 
-        layout.addWidget(QLabel("2. Ou importer les ressources depuis un atelier Dofusbook public", self))
+        layout.addWidget(QLabel("2. Option : importer les ressources depuis un atelier Dofusbook public", self))
         url_row = QHBoxLayout()
         self.url_edit = QLineEdit(self)
         self.url_edit.setPlaceholderText("https://www.dofusbook.net/mobile/fr/membre/.../atelier")
@@ -213,16 +238,61 @@ class CraftAtelierPage(QWidget):
         )
         return response == QMessageBox.StandardButton.Yes
 
+    def _on_recipe_query_changed(self, _query: str) -> None:
+        self._selected_recipe_id = None
+        self._update_recipe_results()
+
+    def _update_recipe_results(self, *_: object) -> None:
+        """Display local game recipes, with a profession filter and a 100-item view cap."""
+        query = normalized_recipe_query(self.item_edit.text())
+        selected_job = self.profession_combo.currentData()
+        count = 0
+        self.recipe_results.clear()
+        self.recipe_results.setUpdatesEnabled(False)
+        for gid, entry in self._sorted_recipes:
+            if selected_job is not None and int(entry.recipe.jobId) != int(selected_job):
+                continue
+            if query and query not in normalized_recipe_query(entry.name):
+                continue
+            count += 1
+            if count > 100:
+                continue
+            item = QListWidgetItem(f"{entry.name} · {entry.job_name} · Niv. {entry.level}")
+            item.setData(Qt.ItemDataRole.UserRole, gid)
+            self.recipe_results.addItem(item)
+        self.recipe_results.setUpdatesEnabled(True)
+        self.recipe_counter.setText(
+            f"{count} recette(s) trouvée(s)"
+            + (" — 100 premières affichées, affine la recherche" if count > 100 else "")
+        )
+
+    def _select_recipe_result(self, item: QListWidgetItem) -> None:
+        gid = int(item.data(Qt.ItemDataRole.UserRole))
+        entry = self.recipe_catalog.get(gid)
+        if entry is None:
+            return
+        self.item_edit.setText(entry.name)
+        self._selected_recipe_id = gid
+
     def _add_craft(self) -> None:
-        name = normalize_item_name(self.item_edit.text())
-        entries = {
-            normalize_item_name(entry.name): entry.recipe.resultId
-            for entry in self.catalog.recipe_by_id.values()
-        }
-        gid = entries.get(name)
+        name = normalized_recipe_query(self.item_edit.text())
+        gid = self._selected_recipe_id
         if gid is None:
+            candidates = [
+                candidate for candidate in self._recipe_by_name.get(name, [])
+                if self.profession_combo.currentData() is None
+                or int(self.recipe_catalog[candidate].recipe.jobId) == int(
+                    self.profession_combo.currentData()
+                )
+            ]
+            if len(candidates) == 1:
+                gid = candidates[0]
+        if gid is None or gid not in self.recipe_catalog:
             QMessageBox.warning(
-                self, "Recette introuvable", "Sélectionne une recette dans les suggestions."
+                self,
+                "Recette à sélectionner",
+                "Recherche l'objet, clique sur sa recette dans la liste "
+                "(son métier et son niveau sont affichés), puis clique sur Ajouter.",
             )
             return
         if not self._confirm_replace(False):
@@ -231,6 +301,7 @@ class CraftAtelierPage(QWidget):
         self.external_requirements.clear()
         self.crafts[gid] = self.crafts.get(gid, 0) + self.amount.value()
         self.item_edit.clear()
+        self._selected_recipe_id = None
         self._update_craft_list()
         self._render()
 
@@ -246,11 +317,9 @@ class CraftAtelierPage(QWidget):
     def _update_craft_list(self) -> None:
         self.craft_list.clear()
         for gid, quantity in self.crafts.items():
-            entry = self.catalog.recipe_by_id.get(gid)
+            entry = self.recipe_catalog.get(gid)
             if entry is None:
                 continue
-            from PyQt6.QtWidgets import QListWidgetItem
-
             item = QListWidgetItem(f"{quantity} × {entry.name}")
             item.setData(Qt.ItemDataRole.UserRole, gid)
             self.craft_list.addItem(item)
@@ -364,9 +433,9 @@ class CraftAtelierPage(QWidget):
             dict(self.external_requirements)
             if self.using_dofusbook
             else craft_requirements(
-                (self.catalog.recipe_by_id[gid].recipe, quantity)
+                (self.recipe_catalog[gid].recipe, quantity)
                 for gid, quantity in self.crafts.items()
-                if gid in self.catalog.recipe_by_id
+                if gid in self.recipe_catalog
             )
         )
         balance = compare_materials(
@@ -398,7 +467,7 @@ class CraftAtelierPage(QWidget):
         self._missing_text = "\n".join(missing_lines)
         total = len(balance)
         missing_kinds = sum(row.missing > 0 for row in balance) if bank_known and inventory_known else None
-        source = "Atelier Dofusbook importé" if self.using_dofusbook else f"{len(self.crafts)} craft(s)"
+        source = "Atelier Dofusbook importé" if self.using_dofusbook else f"{len(self.crafts)} craft(s) locaux"
         self.summary.setText(
             f"Source : {source} | {total} ressources"
             + (f" | {missing_kinds} ressources manquantes" if missing_kinds is not None else "")

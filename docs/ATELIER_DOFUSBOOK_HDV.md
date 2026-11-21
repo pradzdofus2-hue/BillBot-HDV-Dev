@@ -1,3 +1,30 @@
+# Atelier DOFUS complet — Banque / Inventaire
+
+## Source des recettes (aucun accès Dofusbook requis)
+
+La sélection principale de l'onglet Atelier se base désormais sur
+`RecipesDataRoot.json` du client DOFUS déjà présent dans AstraBot.
+Aucune profession n'est filtrée : toutes les recettes **valides**
+(ingrédients et quantités présents) du fichier installé sont indexées.
+
+- Le compteur affiche le nombre de recettes réellement chargées.
+- Le filtre **Métier** peut afficher une profession particulière.
+- La recherche d'objet est insensible aux accents et à la casse.
+- Les 100 premiers résultats sont visibles ; affiner la recherche pour
+  trouver un item plus rapidement.
+- Cliquer une recette affiche son métier et son niveau ; choisir la quantité
+  puis cliquer **Ajouter**.
+- Ajouter plusieurs objets additionne les ingrédients, et le comparateur
+  renseigne **Nécessaire / Banque / Inventaire / Manquant**.
+- L'onglet **Actions → Craft** reste distinct : ce mode d'exécution
+  automatique peut avoir des restrictions métiers que l'Atelier de
+  planification n'a pas.
+
+Les recettes reflètent **les fichiers de données DOFUS installés**, et ne sont
+pas synchronisées avec les modifications futures du jeu tant que ces fichiers
+n'ont pas été mis à jour. Ni le craft automatique ni l'achat de ressources
+ne sont déclenchés par cet onglet.
+
 # Atelier Dofusbook + banque / inventaire
 
 Module **lecture seule** ajouté à l'onglet **Atelier** de chaque compte connecté.
