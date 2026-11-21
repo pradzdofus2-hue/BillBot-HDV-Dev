@@ -115,4 +115,4 @@ def test_javascript_shell_without_ingredients_needs_browser():
     from src.services.dofusbook_atelier import _has_visible_quantities
 
     assert not _has_visible_quantities("Dofusbook Mes crafts Atelier")
-    assert _has_visible_quantities("Peau de Crocabulia\\n0 / 4")
+    assert _has_visible_quantities("Peau de Crocabulia\n0 / 4")
