@@ -70,11 +70,14 @@ def parse_atelier_text(text: str, gid_by_name: dict[str, int]) -> dict[int, int]
             needed = _number(match.group(2))
             if needed <= 0:
                 continue
-            for previous in reversed(lines[max(0, i - 4):i]):
-                gid = gid_by_name.get(normalize_item_name(previous))
-                if gid is not None:
-                    result[gid] = max(result.get(gid, 0), needed)
-                    break
+            # A quantity belongs only to the immediately preceding item name.
+            # Searching backwards across unknown names can silently assign its
+            # quantity to an earlier, recognized resource (e.g. 90 instead of 10).
+            if i == 0:
+                continue
+            gid = gid_by_name.get(normalize_item_name(lines[i - 1]))
+            if gid is not None:
+                result[gid] = max(result.get(gid, 0), needed)
             continue
 
         match = trailing.fullmatch(line)

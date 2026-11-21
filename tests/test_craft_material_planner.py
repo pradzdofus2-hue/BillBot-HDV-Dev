@@ -53,3 +53,35 @@ def test_import_multiple_copied_formats():
     names = {normalize_item_name("Peau de Crocabulia"): 11}
     assert parse_atelier_text("Peau de Crocabulia x 8", names) == {11: 8}
     assert parse_atelier_text("8 x Peau de Crocabulia", names) == {11: 8}
+
+
+def test_unknown_resource_between_known_resource_and_quantity_is_not_attributed():
+    names = {normalize_item_name("Étoffe Mystérieuse"): 22}
+    copied = """
+    Étoffe Mystérieuse
+    2 / 10
+    Autre ressource
+    0 / 90
+    """
+    assert parse_atelier_text(copied, names) == {22: 10}
+
+
+def test_orphan_quantity_without_resource_is_ignored():
+    names = {normalize_item_name("Peau de Crocabulia"): 11}
+    copied = """
+    0 / 999
+    Peau de Crocabulia
+    3 / 8
+    0 / 400
+    """
+    assert parse_atelier_text(copied, names) == {11: 8}
+
+
+def test_unknown_name_is_not_skipped_to_find_earlier_known_name():
+    names = {normalize_item_name("Peau de Crocabulia"): 11}
+    copied = """
+    Peau de Crocabulia
+    Autre ressource
+    0 / 77
+    """
+    assert parse_atelier_text(copied, names) == {}
